@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Notification{
+    pub id: u32,
     pub app_name: String,
     pub app_icon: String,
     pub summary: String,
@@ -16,10 +17,10 @@ pub struct Notification{
 }
 
 impl Notification{
-    pub fn new(app_name: String, app_icon: String, summary: String, body: String) -> Self{
+    pub fn new(id: u32, app_name: String, app_icon: String, summary: String, body: String) -> Self{
         let timestamp = Utc::now().timestamp();
 
-        Self { app_name, app_icon, summary, body, timestamp }
+        Self { id, app_name, app_icon, summary, body, timestamp }
     }
 }
 
@@ -35,9 +36,9 @@ pub fn open_db() -> anyhow::Result<Db>{
     Err(anyhow!("No home dir found"))
 }
 
-pub async fn add_notification(app_name: String, app_icon: String, summary: String, body: String) -> anyhow::Result<()>{
+pub async fn add_notification(id: u32, app_name: String, app_icon: String, summary: String, body: String) -> anyhow::Result<()>{
     let db = open_db()?;
-    let notif = Notification::new(app_name, app_icon, summary, body);
+    let notif = Notification::new(id, app_name, app_icon, summary, body);
     let key = format!("{}", notif.timestamp);
 
     db.insert(key.as_bytes(), serde_json::to_vec(&notif)?)?;
@@ -61,6 +62,25 @@ pub async fn get_recent(seconds: u64) -> anyhow::Result<Vec<Notification>>{
     }
 
     Ok(notifs)
+}
+pub async fn get_all() -> anyhow::Result<Vec<Notification>>{
+    let db = open_db()?;
+    let mut notifs: Vec<Notification> = vec![];
+    for item in db.iter(){
+        let (_, val) = item?;
+        let notif: Notification = serde_json::from_slice(&val)?;
+        notifs.push(notif);
+    }
+
+    Ok(notifs)
+}
+pub async fn remove(id: u32) -> anyhow::Result<()>{
+    let db = open_db()?;
+    let key = format!("{}", id);
+    
+    db.remove(key.as_bytes())?;
+
+    Ok(())
 }
 
 pub async fn clear() -> anyhow::Result<()>{

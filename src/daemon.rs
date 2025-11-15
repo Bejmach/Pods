@@ -50,7 +50,7 @@ impl Daemon{
         let body = body.to_string();
 
         tokio::spawn(async move{
-            let _ = db::add_notification(app_name, app_icon, summary, body).await;
+            let _ = db::add_notification(id, app_name, app_icon, summary, body).await;
         });
 
         id        
