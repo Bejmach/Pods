@@ -1,7 +1,7 @@
 # Pods
 > Do you think games are silly little things?
 
-A lightweight, asynchronous **notification daemon** written in Rust.
+A lightweight **notification daemon** written in Rust.
 
 ---
 
@@ -11,9 +11,9 @@ A lightweight, asynchronous **notification daemon** written in Rust.
 It stores, retrieves, and streams notifications via CLI commands — perfect for integration with bars, widgets, or custom rices (e.g. [eww](https://elkowar.github.io/eww/)).
 
 Unlike traditional D-Bus daemons, `pods` focuses on simplicity:
-- Persistent storage (using sled)
+- Persistent storage (using sqlite)
 - JSON output for easy parsing
-- Optional live streaming mode (`pods listen`)
+- Live streaming mode (`pods listen`) #Yes it prints data each second
 - Works perfectly with minimal setups or custom UIs
 
 ---
@@ -60,6 +60,8 @@ Example:
 ```bash
 pods listem --since 20
 ```
+
+### REMOVE DOES NOT WORK!!!
 
 ### Clear all notifications
 ```bash

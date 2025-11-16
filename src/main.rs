@@ -16,7 +16,7 @@ async fn main() -> anyhow::Result<()>{
     match cmd {
         Command::Enable => Daemon::run().await?,
         Command::Add(notif) => {
-            db::add_notification(notif.id, notif.app_name, notif.app_icon.unwrap_or(String::new()), notif.summary, notif.body).await?;
+            db::add_notification(notif.app_name, notif.app_icon.unwrap_or(String::new()), notif.summary, notif.body).await?;
         },
         Command::Get(flags) => {
             
@@ -39,8 +39,8 @@ async fn main() -> anyhow::Result<()>{
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
         }
-        Command::Remove { id } => db::remove(id).await?,
         Command::Clear => db::clear().await?,
+        _ => {}
     }
 
     Ok(())

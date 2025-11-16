@@ -1,14 +1,14 @@
-use std::{env::home_dir, path::PathBuf};
+use std::{env::home_dir, path::PathBuf, str::FromStr, time::Duration};
 
 use anyhow::anyhow;
 use chrono::Utc;
-use sled::Db;
 use serde::{Deserialize, Serialize};
+use sqlx::{prelude::FromRow, sqlite::{SqliteConnectOptions, SqlitePoolOptions}, Pool, Sqlite, SqliteConnection, SqlitePool};
+use tokio::sync::OnceCell;
 
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, FromRow)]
 pub struct Notification{
-    pub id: u32,
     pub app_name: String,
     pub app_icon: String,
     pub summary: String,
@@ -17,10 +17,10 @@ pub struct Notification{
 }
 
 impl Notification{
-    pub fn new(id: u32, app_name: String, app_icon: String, summary: String, body: String) -> Self{
+    pub fn new(app_name: String, app_icon: String, summary: String, body: String) -> Self{
         let timestamp = Utc::now().timestamp();
 
-        Self { id, app_name, app_icon, summary, body, timestamp }
+        Self {app_name, app_icon, summary, body, timestamp }
     }
 }
 
@@ -28,63 +28,133 @@ pub fn get_home_dir() -> Option<PathBuf>{
     dirs_next::home_dir()
 }
 
-pub fn open_db() -> anyhow::Result<Db>{
-    if let Some(home_dir) = get_home_dir(){
-        let file_path = home_dir.join(".local").join("share").join(".notifdb").to_str().expect("error getting path ~/home/share/.notifdb").to_string();
-        return Ok(sled::open(file_path)?);
-    }
-    Err(anyhow!("No home dir found"))
+
+static DB_CONN: OnceCell<Pool<Sqlite>> = OnceCell::const_new();
+
+pub async fn db_conn() -> Pool<Sqlite>{
+    let path = dirs_next::home_dir()
+        .unwrap()
+        .join(".local/share/pods.db");
+
+    let url = format!("sqlite://{}", path.to_string_lossy());
+
+    DB_CONN.get_or_init(|| async {
+        SqlitePoolOptions::new()
+            .max_connections(5)
+            .idle_timeout(Duration::from_secs(60))
+            .acquire_timeout(Duration::from_secs(5))
+            .connect_with(
+                SqliteConnectOptions::from_str(&url)
+                    .unwrap()
+                    .create_if_missing(true)
+                    .journal_mode(sqlx::sqlite::SqliteJournalMode::Delete),
+            )
+            .await
+            .unwrap()
+    })
+    .await
+    .clone()
 }
 
-pub async fn add_notification(id: u32, app_name: String, app_icon: String, summary: String, body: String) -> anyhow::Result<()>{
-    let db = open_db()?;
-    let notif = Notification::new(id, app_name, app_icon, summary, body);
-    let key = format!("{}", notif.timestamp);
+pub async fn init() -> anyhow::Result<()> {
+    let path = dirs_next::home_dir()
+        .unwrap()
+        .join(".local/share/pods.db");
 
-    db.insert(key.as_bytes(), serde_json::to_vec(&notif)?)?;
-    db.flush()?;
+    let url = format!("sqlite://{}", path.to_string_lossy());
+    let pool = SqlitePool::connect(&url).await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY,
+            app_name TEXT,
+            app_icon TEXT,
+            summary TEXT,
+            body TEXT,
+            timestamp INTEGER
+        );
+        "#,
+    )
+    .execute(&pool)
+    .await?;
+
+    sqlx::query("PRAGMA journal_mode = WAL;")
+        .execute(&pool)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn add_notification(
+    app_name: String,
+    app_icon: String,
+    summary: String,
+    body: String,
+) -> anyhow::Result<()> {
+    let timestamp = Utc::now().timestamp();
+
+    sqlx::query(
+        r#"
+        INSERT INTO notifications(app_name, app_icon, summary, body, timestamp)
+        VALUES (?, ?, ?, ?, ?)
+        "#,
+    )
+    .bind(app_name)
+    .bind(app_icon)
+    .bind(summary)
+    .bind(body)
+    .bind(timestamp)
+    .execute(&db_conn().await)
+    .await?;
 
     Ok(())
 }
 
 pub async fn get_recent(seconds: u64) -> anyhow::Result<Vec<Notification>>{
-    let db = open_db()?;
+    
     let now = Utc::now().timestamp();
     let bound = now - seconds as i64;
 
-    let mut notifs: Vec<Notification> = vec![];
-    for item in db.iter(){
-        let (_, val) = item?;
-        let notif: Notification = serde_json::from_slice(&val)?;
-        if notif.timestamp >= bound{
-            notifs.push(notif);
-        }
-    }
-
+    let notifs = sqlx::query_as::<_, Notification>(
+        r#"
+        SELECT app_name, app_icon, summary, body, timestamp FROM notifications
+        WHERE timestamp > ?
+        "#
+        )
+        .bind(bound)
+        .fetch_all(&db_conn().await)
+        .await?;
+        
     Ok(notifs)
+
 }
 pub async fn get_all() -> anyhow::Result<Vec<Notification>>{
-    let db = open_db()?;
-    let mut notifs: Vec<Notification> = vec![];
-    for item in db.iter(){
-        let (_, val) = item?;
-        let notif: Notification = serde_json::from_slice(&val)?;
-        notifs.push(notif);
-    }
-
+    let notifs = sqlx::query_as::<_, Notification>(
+        r#"
+        SELECT app_name, app_icon, summary, body, timestamp FROM notifications
+        "#
+        )
+        .fetch_all(&db_conn().await)
+        .await?;
+        
     Ok(notifs)
 }
-pub async fn remove(id: u32) -> anyhow::Result<()>{
+/*pub async fn remove(timestamp: i64) -> anyhow::Result<()>{
     let db = open_db()?;
     let key = format!("{}", id);
     
     db.remove(key.as_bytes())?;
 
     Ok(())
-}
+}*/
 
 pub async fn clear() -> anyhow::Result<()>{
-    let db = open_db()?;
-    db.clear()?;
+    sqlx::query(r#"
+        DELETE FROM notifications
+    "#)
+    .execute(&db_conn().await)
+    .await?;
+
     Ok(())
 }

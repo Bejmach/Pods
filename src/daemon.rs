@@ -1,7 +1,7 @@
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{atomic::{AtomicU32, Ordering}, Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use zbus::{interface, Connection};
+use zbus::{interface, object_server::SignalEmitter, zvariant::dbus, Connection, Proxy};
 
 use crate::db;
 
@@ -11,6 +11,9 @@ pub struct Daemon;
 
 impl Daemon{
     pub async fn run() -> zbus::Result<()>{
+        let _ = db::init().await;
+        let _ = db::clear().await;
+
         let connection = Connection::session().await?;
     
         connection
@@ -19,12 +22,13 @@ impl Daemon{
 
         connection
             .object_server()
-            .at("/org/freedesktop/Notifications", Daemon)
+            .at("/org/freedesktop/Notifications", Daemon )
             .await?;
         
         println!("pods daemon started on org.freedesktop.Notifications");
         // Keep running until interrupted
-        std::future::pending::<()>().await;
+        tokio::signal::ctrl_c().await?;
+        println!("Shutting down pods daemon.");
         Ok(())
     }
 }
@@ -50,7 +54,7 @@ impl Daemon{
         let body = body.to_string();
 
         tokio::spawn(async move{
-            let _ = db::add_notification(id, app_name, app_icon, summary, body).await;
+            let _ = db::add_notification(app_name, app_icon, summary, body).await;
         });
 
         id        
@@ -73,4 +77,4 @@ impl Daemon{
     fn close_notification(&self, _id: u32) {
         println!("Notification closed: {}", _id);
     }
-} 
+}
