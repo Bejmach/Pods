@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -10,8 +10,8 @@ pub struct NotifGroup{
     pub notifs: Vec<Notification>,
 }
 
-pub fn group_to_hashmap(notifs: Vec<Notification>) -> HashMap<String, Vec<Notification>>{
-    let mut groups: HashMap<String, Vec<Notification>> = HashMap::new();
+pub fn group_to_map(notifs: Vec<Notification>) -> BTreeMap<String, Vec<Notification>>{
+    let mut groups: BTreeMap<String, Vec<Notification>> = BTreeMap::new();
 
     for notif in notifs{
         if let Some(notif_vec) = groups.get_mut(&notif.app_name){
@@ -26,7 +26,7 @@ pub fn group_to_hashmap(notifs: Vec<Notification>) -> HashMap<String, Vec<Notifi
 }
 
 pub fn group_to_vector(notifs: Vec<Notification>) -> Vec<NotifGroup>{
-    let group_hashmap = group_to_hashmap(notifs);
+    let group_hashmap = group_to_map(notifs);
 
     group_hashmap.iter().map(|(k, v)| NotifGroup{app_name: k.to_string(), notifs: v.clone()}).collect()
 }

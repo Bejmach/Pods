@@ -1,7 +1,6 @@
-use std::sync::{atomic::{AtomicU32, Ordering}, Arc, Mutex};
+use std::sync::{atomic::{AtomicU32, Ordering}};
 
-use serde::{Deserialize, Serialize};
-use zbus::{interface, object_server::SignalEmitter, zvariant::dbus, Connection, Proxy};
+use zbus::{interface, Connection};
 
 use crate::db;
 

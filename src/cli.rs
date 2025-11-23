@@ -6,7 +6,7 @@ pub enum Command{
     Add(Notification),
     Get(GetFlags),
     Listen(GetFlags),
-    Remove {#[arg(long)] id: u32},
+    Remove {#[arg(long, short)] id: Option<u32>, #[arg(long)] app_name: Option<String>},
     Clear,
 }
 

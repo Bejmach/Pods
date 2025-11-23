@@ -1,14 +1,15 @@
-use std::{env::home_dir, path::PathBuf, str::FromStr, time::Duration};
+use std::{path::PathBuf, str::FromStr, sync::atomic::AtomicU32, time::Duration};
 
-use anyhow::anyhow;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, sqlite::{SqliteConnectOptions, SqlitePoolOptions}, Pool, Sqlite, SqliteConnection, SqlitePool};
 use tokio::sync::OnceCell;
 
+static NOTIF_ID: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Serialize, Deserialize, Clone, FromRow)]
 pub struct Notification{
+    pub id: u32,
     pub app_name: String,
     pub app_icon: String,
     pub summary: String,
@@ -17,10 +18,10 @@ pub struct Notification{
 }
 
 impl Notification{
-    pub fn new(app_name: String, app_icon: String, summary: String, body: String) -> Self{
+    pub fn new(id: u32, app_name: String, app_icon: String, summary: String, body: String) -> Self{
         let timestamp = Utc::now().timestamp();
 
-        Self {app_name, app_icon, summary, body, timestamp }
+        Self {id, app_name, app_icon, summary, body, timestamp }
     }
 }
 
@@ -96,10 +97,11 @@ pub async fn add_notification(
 
     sqlx::query(
         r#"
-        INSERT INTO notifications(app_name, app_icon, summary, body, timestamp)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO notifications(id, app_name, app_icon, summary, body, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?)
         "#,
     )
+    .bind(NOTIF_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
     .bind(app_name)
     .bind(app_icon)
     .bind(summary)
@@ -118,7 +120,7 @@ pub async fn get_recent(seconds: u64) -> anyhow::Result<Vec<Notification>>{
 
     let notifs = sqlx::query_as::<_, Notification>(
         r#"
-        SELECT app_name, app_icon, summary, body, timestamp FROM notifications
+        SELECT id, app_name, app_icon, summary, body, timestamp FROM notifications
         WHERE timestamp > ?
         "#
         )
@@ -132,7 +134,7 @@ pub async fn get_recent(seconds: u64) -> anyhow::Result<Vec<Notification>>{
 pub async fn get_all() -> anyhow::Result<Vec<Notification>>{
     let notifs = sqlx::query_as::<_, Notification>(
         r#"
-        SELECT app_name, app_icon, summary, body, timestamp FROM notifications
+        SELECT id, app_name, app_icon, summary, body, timestamp FROM notifications
         "#
         )
         .fetch_all(&db_conn().await)
@@ -140,14 +142,29 @@ pub async fn get_all() -> anyhow::Result<Vec<Notification>>{
         
     Ok(notifs)
 }
-/*pub async fn remove(timestamp: i64) -> anyhow::Result<()>{
-    let db = open_db()?;
-    let key = format!("{}", id);
-    
-    db.remove(key.as_bytes())?;
+pub async fn remove(id: u32) -> anyhow::Result<()>{
+    sqlx::query(r#"
+        DELETE FROM notifications
+        WHERE id = ?
+    "#)
+    .bind(id)
+    .execute(&db_conn().await)
+    .await?;
 
     Ok(())
-}*/
+}
+
+pub async fn remove_by_app_name(app_name: String) -> anyhow::Result<()>{
+    sqlx::query(r#"
+        DELETE FROM notifications
+        WHERE app_name = ?
+    "#)
+    .bind(app_name)
+    .execute(&db_conn().await)
+    .await?;
+
+    Ok(())
+}
 
 pub async fn clear() -> anyhow::Result<()>{
     sqlx::query(r#"
