@@ -18,6 +18,11 @@ pub struct GetFlags{
     #[arg(long)]
     pub all: bool,
 
+    #[arg(long, short)]
+    pub group_vec: bool,
+
+    #[arg(long)]
+    pub group_hash: bool,
 }
 
 #[derive(Parser)]
